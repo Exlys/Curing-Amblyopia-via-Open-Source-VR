@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Ambliyopi VR Prototip - V14 (Klinik Parametreler ve Güvenlik)</title>
+    <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
+    <script>
+      AFRAME.registerComponent('oyun-yoneticisi', {
+        schema: { sure: {type: 'number', default: 150}, mola: {type: 'number', default: 15} },
+        init: function () {
+          this.skor = 0;
+          this.kalanSure = this.data.sure;
+          this.kalanMola = this.data.mola;
+          this.durum = 'bekliyor'; 
+          
+          // Sistem Değişkenleri
+          this.tembelGoz = 'sol'; 
+          this.gormeKeskinligi = 0.5;
+          this.kutuBoyutu = 1.0; 
+          this.opaklik = 0.85;
+
+          // DOM Elementleri
+          this.skorText = document.querySelector('#skor-text');
+          this.sureText = document.querySelector('#sure-text');
+          this.molaEkran = document.querySelector('#mola-ekran');
+          this.hedef = document.querySelector('#hedef');
+          this.ses = document.querySelector('#hit-sound');
+          this.filtre = document.querySelector('#filtre');
+          this.sekiller = ['box', 'sphere', 'cone', 'cylinder'];
+          this.renkler = ['#FF0055', '#00FF88', '#00DDFF', '#FFEE00', '#FF00FF'];
+
+          // ARAYÜZ (UI) DİNLEYİCİLERİ
+          document.querySelector('#btn-basla').addEventListener('click', () => {
+            let kaymaVarMi = document.querySelector('#kayma-secim').value;
+            if(kaymaVarMi === 'evet') {
+              document.querySelector('#hata-mesaji').style.display = 'block';
+              return; // Kill-Switch: Sistemi kilitle
+            }
+
+            this.tembelGoz = document.querySelector('#goz-secim').value;
+            this.gormeKeskinligi = parseFloat(document.querySelector('#keskinlik-secim').value);
+            
+            // PARAMETRİK HESAPLAMA (Transfer Fonksiyonu)
+            // Keskinlik düşükse (0.1), opaklık yüksek olur (0.95). 
+            this.opaklik = 1.0 - (this.gormeKeskinligi * 0.4);
+            // Keskinlik düşükse hedef büyük başlar
+            this.baslangicKutuBoyutu = 1.5 - this.gormeKeskinligi; 
+            
+            this.oyunuBaslat();
+          });
+
+          this.hedef.addEventListener('click', () => {
+            if(this.durum !== 'aktif') return;
+            
+            this.skor++;
+            this.skorText.setAttribute('value', 'Skor: ' + this.skor);
+            this.ses.currentTime = 0; 
+            this.ses.play();
+
+            // Hedefin küçülme alt sınırı da görme keskinliğine bağlı
+            let minimumBoyut = this.gormeKeskinligi * 0.8;
+            if(this.kutuBoyutu > minimumBoyut) {
+              this.kutuBoyutu -= 0.015; 
+              this.hedef.setAttribute('scale', `${this.kutuBoyutu} ${this.kutuBoyutu} ${this.kutuBoyutu}`);
+            }
+            this.hedefiIsinlaVeGurutle();
+          });
+
+          this.dongu = setInterval(() => {
+            if (this.durum === 'aktif') {
+              this.kalanSure--;
+              this.sureText.setAttribute('value', 'Sure: ' + this.kalanSure + ' sn');
+              if (this.kalanSure <= 0) this.setDurum('mola');
+            } 
+            else if (this.durum === 'mola') {
+              this.kalanMola--;
+              this.molaEkran.setAttribute('value', 'SEANS BITTI\nSkor: ' + this.skor + '\n\nYeni Seans:\n' + this.kalanMola + ' sn');
+              if (this.kalanMola <= 0) this.seansiSifirla();
+            }
+          }, 1000);
+        },
+
+        oyunuBaslat: function() {
+          document.querySelector('#baslangic-ekrani').style.display = 'none';
+          
+          // Filtre opaklığını hastanın değerine göre uygula
+          this.filtre.setAttribute('material', `transparent: true; opacity: ${this.opaklik}`);
+
+          // HUD Aynalama
+          if(this.tembelGoz === 'sol') {
+            this.filtre.setAttribute('position', '1 0 -1'); 
+            this.skorText.setAttribute('position', '-1.5 0.6 -1.5'); 
+            this.sureText.setAttribute('position', '-1.5 0.4 -1.5');
+            this.molaEkran.setAttribute('position', '1.0 0.2 -0.9'); 
+          } else {
+            this.filtre.setAttribute('position', '-1 0 -1'); 
+            this.skorText.setAttribute('position', '1.5 0.6 -1.5'); 
+            this.sureText.setAttribute('position', '1.5 0.4 -1.5');
+            this.molaEkran.setAttribute('position', '-1.0 0.2 -0.9'); 
+          }
+
+          this.seansiSifirla();
+        },
+        
+        hedefiIsinlaVeGurutle: function() {
+          let carpan = (this.tembelGoz === 'sol') ? -1 : 1;
+          let yeniX = ((Math.random() * 6) + 2) * carpan; 
+          let yeniY = (Math.random() * 4.5) + 1; 
+          let yeniZ = (Math.random() * -10) - 4; 
+          this.hedef.setAttribute('position', yeniX + ' ' + yeniY + ' ' + yeniZ);
+
+          let secilenSekil = this.sekiller[Math.floor(Math.random() * this.sekiller.length)];
+          let secilenRenk = this.renkler[Math.floor(Math.random() * this.renkler.length)];
+          this.hedef.setAttribute('geometry', 'primitive: ' + secilenSekil);
+          this.hedef.setAttribute('material', 'color: ' + secilenRenk);
+
+          for(let i = 1; i <= 3; i++) {
+            let celdirici = document.querySelector('#celdirici' + i);
+            if(celdirici) {
+              let offsetX = (Math.random() * 2.4) - 1.2; 
+              let offsetY = (Math.random() * 2.4) - 1.2;
+              let offsetZ = (Math.random() * 2.4) - 1.2;
+              celdirici.setAttribute('position', (yeniX + offsetX) + ' ' + (yeniY + offsetY) + ' ' + (yeniZ + offsetZ));
+              
+              let cSekil = this.sekiller[Math.floor(Math.random() * this.sekiller.length)];
+              let cRenk = this.renkler[Math.floor(Math.random() * this.renkler.length)];
+              celdirici.setAttribute('geometry', 'primitive: ' + cSekil);
+              celdirici.setAttribute('material', 'color: ' + cRenk + '; opacity: 0.6; roughness: 1');
+              celdirici.setAttribute('scale', `${this.kutuBoyutu * 0.9} ${this.kutuBoyutu * 0.9} ${this.kutuBoyutu * 0.9}`);
+            }
+          }
+        },
+
+        setDurum: function(yeniDurum) {
+          this.durum = yeniDurum;
+          let vis = yeniDurum === 'aktif' ? 'true' : 'false';
+          let molaVis = yeniDurum === 'mola' ? 'true' : 'false';
+          
+          this.hedef.setAttribute('visible', vis);
+          this.skorText.setAttribute('visible', vis);
+          this.sureText.setAttribute('visible', vis);
+          this.molaEkran.setAttribute('visible', molaVis);
+          for(let i = 1; i <= 3; i++) {
+            let celdirici = document.querySelector('#celdirici' + i);
+            if(celdirici) celdirici.setAttribute('visible', vis);
+          }
+        },
+        
+        seansiSifirla: function() {
+          this.skor = 0;
+          this.kutuBoyutu = this.baslangicKutuBoyutu; // Dinamik başlangıç boyutu
+          this.kalanSure = this.data.sure;
+          this.kalanMola = this.data.mola;
+          
+          this.hedef.setAttribute('scale', `${this.kutuBoyutu} ${this.kutuBoyutu} ${this.kutuBoyutu}`);
+          this.skorText.setAttribute('value', 'Skor: 0');
+          this.sureText.setAttribute('value', 'Sure: ' + this.data.sure + ' sn');
+          
+          this.setDurum('aktif');
+          this.hedefiIsinlaVeGurutle();
+        }
+      });
+    </script>
+  </head>
+  <body style="margin: 0; padding: 0; overflow: hidden; font-family: sans-serif;">
+    
+    <div id="baslangic-ekrani" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 9999; background: #020208; color: white; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+      <h2 style="margin-bottom: 20px;">Ambliyopi VR - Klinik Kalibrasyon</h2>
+      
+      <div style="margin-bottom: 15px; text-align: center;">
+        <label style="display: block; margin-bottom: 5px;">Hangi gözünüz tembel?</label>
+        <select id="goz-secim" style="padding: 10px; font-size: 16px; border-radius: 5px;">
+          <option value="sol">Sol Göz</option>
+          <option value="sag">Sağ Göz</option>
+        </select>
+      </div>
+
+      <div style="margin-bottom: 15px; text-align: center;">
+        <label style="display: block; margin-bottom: 5px;">Doktorunuzun verdiği görme keskinliği nedir?</label>
+        <select id="keskinlik-secim" style="padding: 10px; font-size: 16px; border-radius: 5px;">
+          <option value="0.1">0.1 (Çok Düşük)</option>
+          <option value="0.3">0.3 (Düşük)</option>
+          <option value="0.5" selected>0.5 (Orta)</option>
+          <option value="0.7">0.7 (İyi)</option>
+          <option value="0.9">0.9 (Çok İyi)</option>
+        </select>
+      </div>
+
+      <div style="margin-bottom: 30px; text-align: center;">
+        <label style="display: block; margin-bottom: 5px; color: #FF5555; font-weight: bold;">Gözünüzde aktif bir kayma (Şaşılık) var mı?</label>
+        <select id="kayma-secim" style="padding: 10px; font-size: 16px; border-radius: 5px;">
+          <option value="hayir" selected>Hayır, kayma yok</option>
+          <option value="evet">Evet, kayma var</option>
+        </select>
+      </div>
+
+      <button id="btn-basla" style="padding: 15px 40px; font-size: 18px; cursor: pointer; background: #00FF88; color: #000; border: none; border-radius: 8px; font-weight: bold;">Sistemi Kalibre Et ve Başla</button>
+      
+      <p id="hata-mesaji" style="color: #FF5555; font-weight: bold; margin-top: 20px; display: none; text-align: center; max-width: 400px;">
+        UYARI: Aktif göz kayması (şaşılık) durumlarında VR kullanımı diplopi (çift görme) riskini artırabilir. Lütfen bu sistemi kullanmadan önce bir nöro-oftalmoloğa danışınız.
+      </p>
+    </div>
+
+    <a-scene background="color: #020208" oyun-yoneticisi>
+      <audio id="hit-sound" src="https://cdn.aframe.io/basic-guide/audio/backgroundnoise.wav" preload="auto"></audio>
+
+      <a-cylinder position="0 0 -15" radius="15" height="60" rotation="90 0 0" color="#0a2a4a" material="wireframe: true; side: double" animation="property: rotation; to: 90 360 0; loop: true; dur: 120000; easing: linear"></a-cylinder>
+
+      <a-entity id="hedef" geometry="primitive: box" material="color: #FF0055" position="0 0 0" class="etkilesimli" visible="false" animation="property: rotation; to: 360 360 0; loop: true; dur: 2000"></a-entity>
+      <a-entity id="celdirici1" visible="false"></a-entity>
+      <a-entity id="celdirici2" visible="false"></a-entity>
+      <a-entity id="celdirici3" visible="false"></a-entity>
+
+      <a-entity camera look-controls position="0 1.6 0">
+        <a-plane position="0 0 -2" rotation="0 90 0" width="10" height="10" color="#000000">
+          <a-plane position="0 4.9 0.1" width="10" height="0.1" color="#FFFFFF"></a-plane>
+          <a-plane position="0 -4.9 0.1" width="10" height="0.1" color="#FFFFFF"></a-plane>
+        </a-plane>
+        
+        <a-plane id="filtre" position="1 0 -1" rotation="0 0 0" width="2" height="2" color="#020208"></a-plane>
+
+        <a-text id="skor-text" value="" position="-1.5 0.6 -1.5" color="#00FFFF" scale="0.4 0.4 0.4" align="center" visible="false"></a-text>
+        <a-text id="sure-text" value="" position="-1.5 0.4 -1.5" color="#FF5555" scale="0.4 0.4 0.4" align="center" visible="false"></a-text>
+        <a-text id="mola-ekran" value="" position="1.0 0.2 -0.9" color="#00FF00" scale="0.3 0.3 0.3" align="center" visible="false"></a-text>
+
+        <a-entity cursor="fuse: true; fuseTimeout: 1000"
+                  raycaster="objects: .etkilesimli"
+                  position="0 0 -1"
+                  geometry="primitive: ring; radiusInner: 0.02; radiusOuter: 0.03"
+                  material="color: white; shader: flat"
+                  animation__fusing="property: scale; startEvents: fusing; easing: easeInCubic; dur: 1000; from: 1 1 1; to: 0.1 0.1 0.1"
+                  animation__mouseleave="property: scale; startEvents: mouseleave; easing: easeInCubic; dur: 500; to: 1 1 1"
+                  animation__click="property: scale; startEvents: click; easing: easeInCubic; dur: 150; from: 0.1 0.1 0.1; to: 1 1 1">
+        </a-entity>
+      </a-entity>
+    </a-scene>
+  </body>
+</html>
